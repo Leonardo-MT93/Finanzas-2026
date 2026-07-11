@@ -35,13 +35,18 @@ header.app .sub{color:var(--muted);font-size:12px}
 
 /* statement hero (signature) */
 .statement{background:linear-gradient(170deg,#1B2231,#141926);border:1px solid var(--border);border-radius:20px;padding:20px 18px 16px;position:relative;overflow:hidden}
-.statement::after{content:"";position:absolute;left:0;right:0;bottom:54px;border-top:1.5px dashed #333D52}
+.statement .split{border-top:1.5px dashed #333D52;margin-top:16px;padding-top:10px}
+.statement .srow{display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;font-size:13px}
+.statement .srow .sl{color:var(--muted)}
+.statement .srow .sv{font-weight:600}
+.statement .srow .sv .u{color:var(--usd)}
 .statement .eyebrow{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--celeste);font-weight:600}
 .statement .big{font-size:clamp(34px,9vw,44px);font-weight:800;margin:6px 0 2px;color:var(--ars)}
 .statement .usdline{font-size:16px;font-weight:700;color:var(--usd)}
 .statement .usdline span{font-size:12px;color:var(--muted);font-weight:500}
-.statement .foot{display:flex;gap:18px;margin-top:22px;padding-top:12px;font-size:12px;color:var(--muted)}
+.statement .foot{display:flex;gap:18px;margin-top:12px;padding-top:12px;border-top:1.5px dashed #333D52;font-size:12px;color:var(--muted)}
 .statement .foot b{color:var(--text);font-family:Sora}
+.statement .foot .u{color:var(--usd);font-weight:600}
 
 /* card rows */
 .cardlist{margin-top:16px;display:flex;flex-direction:column;gap:10px}
@@ -145,9 +150,13 @@ nav.tabs button.on{color:var(--celeste)}
     <button id="rm-next" aria-label="Mes siguiente">›</button>
   </div>
   <div class="statement">
-    <div class="eyebrow">A pagar · tarjetas</div>
+    <div class="eyebrow">Total a abonar del mes</div>
     <div class="big num" id="res-total-ars">$ 0</div>
-    <div class="usdline num" id="res-total-usd">US$ 0 <span>en dólares, aparte</span></div>
+    <div class="usdline num" id="res-total-usd">+ US$ 0 <span>en dólares, aparte</span></div>
+    <div class="split">
+      <div class="srow"><span class="sl">💳 Tarjetas</span><span class="sv num" id="res-split-cards">$ 0</span></div>
+      <div class="srow"><span class="sl">⌂ Hogar · tu parte (efectivo)</span><span class="sv num" id="res-split-home">$ 0</span></div>
+    </div>
     <div class="foot">
       <div>Cuotas<br><b id="res-cuotas">$ 0</b></div>
       <div>Suscripciones<br><b id="res-subs">$ 0</b></div>
@@ -426,17 +435,19 @@ function itemsForMonth(mk){
   return items;
 }
 function totalsForMonth(mk){
-  const per = {}; let ars=0, usd=0, cuotas=0, subs=0, unpay=0;
+  const per = {}; let ars=0, usd=0, cuotas=0, subs=0, unpay=0, cuotasU=0, subsU=0, unpayU=0;
   for(const c of state.cards) per[c.id] = {ars:0, usd:0};
   for(const it of itemsForMonth(mk)){
     if(!per[it.cardId]) continue;
-    if(it.currency==="USD"){ per[it.cardId].usd += it.amount; usd += it.amount; }
-    else{
+    if(it.currency==="USD"){
+      per[it.cardId].usd += it.amount; usd += it.amount;
+      if(it.type==="cuota") cuotasU += it.amount; else if(it.type==="sub") subsU += it.amount; else unpayU += it.amount;
+    } else {
       per[it.cardId].ars += it.amount; ars += it.amount;
       if(it.type==="cuota") cuotas += it.amount; else if(it.type==="sub") subs += it.amount; else unpay += it.amount;
     }
   }
-  return {per, ars, usd, cuotas, subs, unpay};
+  return {per, ars, usd, cuotas, subs, unpay, cuotasU, subsU, unpayU};
 }
 const sharedForMonth = mk => state.shared.filter(s=>s.month===mk);
 const debtorPendingARS = () => state.debtors.filter(d=>!d.paid && d.currency==="ARS").reduce((a,d)=>a+d.amount,0);
@@ -459,11 +470,15 @@ function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("sh
 function renderResumen(){
   $("#rm-label").textContent = monthLabel(resMonth) + (resMonth===nextMonth ? " · próximo" : resMonth===curMonth ? " · actual" : "");
   const t = totalsForMonth(resMonth);
-  $("#res-total-ars").textContent = fARS.format(t.ars);
-  $("#res-total-usd").innerHTML = fUSD.format(t.usd) + ' <span>en dólares, aparte</span>';
-  $("#res-cuotas").textContent = fARS.format(t.cuotas);
-  $("#res-subs").textContent = fARS.format(t.subs);
-  $("#res-unpay").textContent = fARS.format(t.unpay);
+  const homeShare = sharedForMonth(resMonth).reduce((a,s)=>a+s.amount,0) * state.sharePct/100;
+  const withU = (a,u) => fARS.format(a) + (u>0 ? ' <span class="u num">+ '+fUSD.format(u)+'</span>' : "");
+  $("#res-total-ars").textContent = fARS.format(t.ars + homeShare);
+  $("#res-total-usd").innerHTML = "+ " + fUSD.format(t.usd) + ' <span>en dólares, aparte</span>';
+  $("#res-split-cards").innerHTML = withU(t.ars, t.usd);
+  $("#res-split-home").textContent = fARS.format(homeShare);
+  $("#res-cuotas").innerHTML = withU(t.cuotas, t.cuotasU);
+  $("#res-subs").innerHTML = withU(t.subs, t.subsU);
+  $("#res-unpay").innerHTML = withU(t.unpay, t.unpayU);
   const list = $("#res-cards"); list.innerHTML = "";
   const ranked = [...state.cards].sort((a,b)=>(t.per[b.id].ars+t.per[b.id].usd*1)-(t.per[a.id].ars+t.per[a.id].usd*1));
   const worstId = ranked.length && (t.per[ranked[0].id].ars>0 || t.per[ranked[0].id].usd>0) ? ranked[0].id : null;
@@ -485,8 +500,8 @@ function renderResumen(){
     div.onclick = () => div.classList.toggle("open");
     list.appendChild(div);
   }
-  const sh = sharedForMonth(resMonth).reduce((a,s)=>a+s.amount,0);
-  $("#res-hogar").textContent = fARS.format(sh*state.sharePct/100);
+  const sh = homeShare;
+  $("#res-hogar").textContent = fARS.format(sh);
   const dArs = debtorPendingARS(), dUsd = debtorPendingUSD();
   $("#res-deben").textContent = fARS.format(dArs) + (dUsd>0 ? " + "+fUSD.format(dUsd) : "");
   renderChart();
